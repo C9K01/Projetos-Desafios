@@ -1,0 +1,117 @@
+from sqlalchemy import create_engine
+from sqlalchemy import Column
+from sqlalchemy import Integer
+from sqlalchemy import String
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Session
+from pymongo import MongoClient
+
+
+Base = declarative_base()
+
+class Agencia(Base):
+    __tablename__ = 'agencias'
+    id = Column(Integer, primary_key=True)
+    numero = Column(String, unique=True)
+    nome = Column(String)
+    contas = relationship('Conta', back_populates='agencia')
+    clientes = relationship('Cliente', back_populates='agencia')
+
+
+class Cliente(Base):
+    __tablename__ = 'clientes'
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, index=True)
+    cpf = Column(String, unique=True, index=True)
+    endereco = Column(String)
+    agencia_id = Column(Integer, ForeignKey('agencias.id'))
+    agencia = relationship('Agencia', back_populates='clientes')
+    contas = relationship('Conta', back_populates='cliente')
+
+class Conta(Base):
+    __tablename__ = 'contas'
+    id = Column(Integer, primary_key=True, index=True)
+    numero_conta = Column(Integer, unique=True)  # Renomeado para 'numero_conta'
+    saldo = Column(Integer)
+    tipo = Column(String)
+    cliente_id = Column(Integer, ForeignKey('clientes.id'))
+    agencia_id = Column(Integer, ForeignKey('agencias.id'))
+    cliente = relationship('Cliente', back_populates='contas')
+    agencia = relationship('Agencia', back_populates='contas')
+
+# Cria o banco de dados SQLite em memória
+engine = create_engine('sqlite://')
+
+# Conecta ao MongoDB Atlas (substitua os valores pelo seu próprio URI)
+mongo_uri = ""
+client = MongoClient(mongo_uri, serverSelectionTimeoutMS=30000)
+
+# Cria as tabelas no banco de dados
+Base.metadata.create_all(bind=engine)
+
+# Cria uma sessão para interagir com o banco de dados
+session = Session(engine)
+
+# Adicionar uma agência, um cliente e uma conta
+agencia = Agencia(numero='001', nome='Agência Central')
+session.add(agencia)
+
+# Adiciona dados
+cliente1 = Cliente(nome='João', cpf='123.456.789-00', endereco='Rua A')
+conta_corrente1 = Conta(numero_conta=1, saldo=1000, tipo='Corrente')
+conta_poupanca1 = Conta(numero_conta=2, saldo=500, tipo='Poupança')
+cliente1.contas.extend([conta_corrente1, conta_poupanca1])
+conta_corrente1.agencia = agencia
+conta_poupanca1.agencia = agencia
+
+cliente2 = Cliente(nome='Maria', cpf='987.654.321-00', endereco='Rua B')
+conta_corrente2 = Conta(numero_conta=3, saldo=2000, tipo='Corrente')
+conta_poupanca2 = Conta(numero_conta=4, saldo=1000, tipo='Corrente')
+cliente2.contas.extend([conta_corrente2, conta_poupanca2])
+conta_corrente2.agencia = agencia
+conta_poupanca2.agencia = agencia
+
+session.add_all([cliente1, cliente2])
+session.commit()
+
+
+# Define o banco de dados 'meu_banco_de_dados'
+db = client['meu_banco_de_dados']
+
+# Define a coleção 'bank'
+colecao_bank = db['bank']
+
+# Insere documentos para os clientes
+documento_joao = {
+    "nome": "João",
+    "cpf": "12345678900",
+    "endereco": "Rua A",
+    "contas": [
+        {"agencia": "001", "numero": 1, "saldo": 1000},
+        {"agencia": "001", "numero": 2, "saldo": 500}
+    ]
+}
+
+documento_maria = {
+    "nome": "Maria",
+    "cpf": "98765432100",
+    "endereco": "Rua B",
+    "contas": [
+        {"agencia": "001", "numero": 3, "saldo": 2000},
+        {"agencia": "001", "numero": 4, "saldo": 1000}
+    ]
+}
+
+# Insere os documentos na coleção 'bank'
+colecao_bank.insert_many([documento_joao, documento_maria])
+
+# Recupera informações com base nos pares de chave e valor
+# Exemplo: Recupera todas as informações de clientes com CPF específico
+cpf_procurado = "12345678900"
+cliente_procurado = colecao_bank.find_one({"cpf": cpf_procurado})
+
+print(f'Cliente: {cliente_procurado["nome"]}, CPF: {cliente_procurado["cpf"]}, Endereço: {cliente_procurado["endereco"]}')
+for conta in cliente_procurado["contas"]:
+    print(f'Agência: {conta["agencia"]}, Número da Conta: {conta["numero_conta"]}, Saldo: {conta["saldo"]}')
